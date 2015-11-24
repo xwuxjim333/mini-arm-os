@@ -78,13 +78,13 @@ int main(void)
 
 	usart_init();
 
-	if (thread_create(test1, (void *) str1) == -1)
+	if (thread_create(test1, (void *) str1, 2) == -1)
 		print_str("Thread 1 creation failed\r\n");
 
-	if (thread_create(test2, (void *) str2) == -1)
+	if (thread_create(test2, (void *) str2, 1) == -1)
 		print_str("Thread 2 creation failed\r\n");
 
-	if (thread_create(test3, (void *) str3) == -1)
+	if (thread_create(test3, (void *) str3, 3) == -1)
 		print_str("Thread 3 creation failed\r\n");
 
 	/* SysTick configuration */
