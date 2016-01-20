@@ -6,6 +6,8 @@
 
 #define THREAD_PSP	0xFFFFFFFD
 
+#define MAX_ORDER 9
+
 /* Thread Control Block */
 typedef struct {
 	void *stack;
@@ -17,7 +19,9 @@ typedef struct {
 static tcb_t tasks[MAX_TASKS];
 static int lastTask;
 static int first = 1;
-static int total = 0;
+static int task_order[MAX_ORDER] = {3, 1, 2, 1, 1, 1, 1, 2, 2};
+static int robin = 0;
+static int now;
 
 /* FIXME: Without naked attribute, GCC will corrupt r7 which is used for stack
  * pointer. If so, after restoring the tasks' context, we will get wrong stack
@@ -30,30 +34,33 @@ void __attribute__((naked)) pendsv_handler()
 	             "stmdb r0!, {r4-r11, lr}\n");
 	/* To get the task pointer address from result r0 */
 	asm volatile("mov   %0, r0\n" : "=r" (tasks[lastTask].stack));
-
+	now = tasks[lastTask].priority;
 	/* Find a new task to run */
+	
 	while (1) {
-		lastTask++;
-		if (lastTask == MAX_TASKS)
-			lastTask = 0;
 
-		if (lastTask != 0 && tasks[lastTask -1].priority < tasks[lastTask].priority && tasks[lastTask-1].in_use) {
-			lastTask--;
-			/* Move the task's stack pointer address into r0 */
-			asm volatile("mov r0, %0\n" : : "r" (tasks[lastTask].stack));
-			/* Restore the new task's context and jump to the task */
-			asm volatile("ldmia r0!, {r4-r11, lr}\n"
-			             "msr psp, r0\n"
-			             "bx lr\n");
-
-		} else if (tasks[lastTask].in_use) {
-			/* Move the task's stack pointer address into r0 */
-			asm volatile("mov r0, %0\n" : : "r" (tasks[lastTask].stack));
-			/* Restore the new task's context and jump to the task */
-			asm volatile("ldmia r0!, {r4-r11, lr}\n"
-			             "msr psp, r0\n"
-			             "bx lr\n");
+		for (lastTask = 0; lastTask < MAX_TASKS; lastTask++) {
+				if (task_order[robin] == now) {
+					robin++;
+					if (robin == MAX_ORDER)
+							robin = 0;
+				}
+				if (tasks[lastTask].priority == task_order[robin] && tasks[lastTask].in_use) {
+					/* Move the task's stack pointer address into r0 */
+					/* Restore the new task's context and jump to the task */
+					asm volatile("mov r0, %0\n"
+								 "ldmia r0!, {r4-r11, lr}\n"
+							     "msr psp, r0\n"
+							     "bx lr\n"
+								 : : "r" (tasks[lastTask].stack));
+					now = task_order[robin];
+					robin++;
+					lastTask++;
+					if (robin == MAX_ORDER)
+						robin = 0;
+				}	
 		}
+		
 	}
 }
 
@@ -65,7 +72,7 @@ void systick_handler()
 void thread_start()
 {
 	lastTask = 0;
-
+	robin = 0;
 	/* Save kernel context */
 	asm volatile("mrs ip, psr\n"
 	             "push {r4-r11, ip, lr}\n");
@@ -117,7 +124,6 @@ int thread_create(void (*run)(void *), void *userdata, uint8_t p)
 		stack[15] = (unsigned int) run;
 		stack[16] = (unsigned int) 0x21000000; /* PSR Thumb bit */
 	}
-	total++;
 
 	/* Construct the control block */
 	tasks[threadId].stack = stack;
@@ -147,3 +153,4 @@ void thread_self_terminal()
 	/* And now wait for death to kick in */
 	while (1);
 }
+
